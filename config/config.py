@@ -37,6 +37,7 @@ config.dataset.imageset = 'train'
 config.dataset.image_root = './datasets'
 config.dataset.testset = 'val'
 
+
 config.TRAIN = edict()
 
 config.TRAIN.optimizer = 'adam'
@@ -47,6 +48,7 @@ config.TRAIN.momentum = 0.9
 config.TRAIN.wd = 0.0005
 config.TRAIN.begin_epoch = 0
 config.TRAIN.end_epoch = 200
+config.TRAIN.num_batches = 1000
 config.TRAIN.model_prefix = ''
 
 config.TRAIN.step_epoch = 100

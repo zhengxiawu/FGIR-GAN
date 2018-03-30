@@ -16,6 +16,7 @@ matplotlib.use('Agg')
 import time
 from config.config import config, update_config
 
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Train PIX2PIX')
     # general
@@ -36,13 +37,13 @@ import shutil
 import numpy as np
 import mxnet as mx
 
-from pix2pix.symbols.pix2pix_instance import defineG_encoder_decoder, defineG_unet, defineD_n_layers, defineD_basic
-from pix2pix.symbols.pix2pix_batch import defineG_encoder_decoder_batch, defineG_unet_batch, defineD_n_layers_batch, defineD_basic_batch
-from pix2pix.core.create_logger import create_logger
-from pix2pix.core.loader import pix2pixIter
-from pix2pix.core.visualize import visualize
-from pix2pix.core import metric
-from pix2pix.core.lr_scheduler import PIX2PIXScheduler
+from symbols.pix2pix_instance import defineG_encoder_decoder, defineG_unet, defineD_n_layers, defineD_basic
+from symbols.pix2pix_batch import defineG_encoder_decoder_batch, defineG_unet_batch, defineD_n_layers_batch, defineD_basic_batch
+from core.create_logger import create_logger
+from core.loader import pix2pixIter
+from core.visualize import visualize
+from core import metric
+from core.lr_scheduler import PIX2PIXScheduler
 
 
 def main():
@@ -122,7 +123,8 @@ def main():
 
     generator = mx.mod.Module(symbol=generatorSymbol, data_names=('A', 'B',), label_names=None, context=ctx)
     generator.bind(data_shapes=train_data.provide_data)
-
+    #draw network
+    #network_test(generatorSymbol)
     # init params
     arg_params = {}
     aux_params = {}
