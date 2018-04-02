@@ -8,6 +8,25 @@ import mxnet as mx
 import os
 import numpy as np
 import cv2
+import random
+from data_basic import *
+#read txt function
+def get_data_by_txt(txt_path):
+    data_gen = []
+    label = []
+    with open(txt_path) as f:
+        txt_lines = f.readlines()
+    for key,value in enumerate(txt_lines):
+        info_list = value.split(' ')
+        data_gen.append(info_list[0])
+        label.append(int(info_list[1]))
+    return data_gen,label
+def get_label_idx(label):
+    unique_label = list(set(label))
+    label_idx = []
+    for i in unique_label:
+        label_idx.append([j for j,x in enumerate(label) if x == i])
+    return unique_label,label_idx
 
 class DataIter(mx.io.DataIter):
     def __init__(self, config, shuffle=False, ctx=None, is_train=True):
@@ -18,8 +37,12 @@ class DataIter(mx.io.DataIter):
         self.testset = config.dataset.testset
         self.root = os.path.join(config.dataset.root, config.dataset.dataset)  # path to store image name text file
         self.image_root = os.path.join(config.dataset.image_root, config.dataset.dataset)  # path to jpeg file
-
         self.image_files = self._load_image_path()
+        self.data_gen, self.label = get_data_by_txt(self.txt_path)
+        self.unique_label, self.unique_label_idx = get_label_idx(self.label)
+        self.img_mean = np.array([self.config.dataset.mean_r,
+                                  self.config.dataset.mean_g,
+                                  self.config.dataset.mean_b])
         self.size = len(self.image_files)
         self.index = np.arange(self.size)
 
@@ -50,7 +73,7 @@ class DataIter(mx.io.DataIter):
 
     @property
     def provide_label(self):
-        return []
+        return [('label',(self.batch_size * 2,))]
 
     def reset(self):
         self.cur = 0
@@ -64,11 +87,14 @@ class DataIter(mx.io.DataIter):
         if self.iter_next():
             self.get_batch()
             self.cur += self.batch_size
-            return mx.io.DataBatch(data=[mx.nd.array(self.A, ctx=self.ctx),
-                                         mx.nd.array(self.B, ctx=self.ctx)],
-                                   label=self.getlabel(),
-                                   pad=self.getpad(), index=self.getindex(),
-                                   provide_data=self.provide_data, provide_label=self.provide_label)
+            return Batch(data=[mx.nd.array(self.A, ctx=self.ctx),
+                               mx.nd.array(self.B, ctx=self.ctx)],
+                         label=[mx.nd.array(self.label_batch)])
+            # return mx.io.DataBatch(data=[mx.nd.array(self.A, ctx=self.ctx),
+            #                              mx.nd.array(self.B, ctx=self.ctx)],
+            #                        label=[mx.nd.array(self.label_batch)],
+            #                        pad=self.getpad(), index=self.getindex(),
+            #                        provide_data=self.provide_data, provide_label=self.provide_label)
         else:
             raise StopIteration
 
@@ -87,12 +113,13 @@ class DataIter(mx.io.DataIter):
         else:
             fname = os.path.join(self.root, self.testset + '.txt')
         assert os.path.exists(fname), 'Path does not exist: {}'.format(fname)
+        self.txt_path = fname
         with open(fname) as f:
             lines = [x.strip() for x in f.readlines()]
-
         return lines
 
     def get_batch(self):
+        self.label_batch = []
         cur_from = self.cur
         cur_to = min(cur_from + self.batch_size, self.size)
         pad = cur_from + self.batch_size - cur_to
@@ -105,55 +132,26 @@ class DataIter(mx.io.DataIter):
             batchB = np.zeros((0, 3, self.config.TEST.img_h, self.config.TEST.img_w))
 
         for index in range(cur_from, cur_to):
-            AB_path = os.path.join(self.image_root, self.image_files[index])
-            AB = cv2.imread(AB_path, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
-
-            if self.is_train:
-                AB = cv2.resize(AB, (self.config.loadSize * 2, self.config.loadSize), interpolation=cv2.INTER_CUBIC)
-
-                w_total = AB.shape[1]
-                w = int(w_total / 2)
-                h = AB.shape[0]
-                w_offset = np.random.randint(0, max(0, w - self.config.fineSize - 1))
-                h_offset = np.random.randint(0, max(0, h - self.config.fineSize - 1))
-
-                # random crop
-                A = AB[h_offset:h_offset + self.config.fineSize,
-                    w_offset:w_offset + self.config.fineSize, :]
-                B = AB[h_offset:h_offset + self.config.fineSize,
-                    w + w_offset:w + w_offset + self.config.fineSize, :]
-
-                if self.config.TRAIN.FLIP and np.random.random() < 0.5:
-                    A = A[:, ::-1, :]
-                    B = B[:, ::-1, :]
-
-                # H x W x C -> H x W x C x 1 -> 1 x C x H x W
-                A = np.transpose(A[..., np.newaxis], (3, 2, 0, 1))
-                B = np.transpose(B[..., np.newaxis], (3, 2, 0, 1))
-
-                batchA = np.concatenate((batchA, A), axis=0)
-                batchB = np.concatenate((batchB, B), axis=0)
-            else:
-                AB = cv2.resize(AB, (self.config.TEST.img_w * 2, self.config.TEST.img_h), interpolation=cv2.INTER_CUBIC)
-                w_total = AB.shape[1]
-                w = int(w_total / 2)
-
-                A = AB[:, :w, :]
-                B = AB[:, w:, :]
-
-                # H x W x C -> H x W x C x 1 -> 1 x C x H x W
-                A = np.transpose(A[..., np.newaxis], (3, 2, 0, 1))
-                B = np.transpose(B[..., np.newaxis], (3, 2, 0, 1))
-
-                batchA = np.concatenate((batchA, A), axis=0)
-                batchB = np.concatenate((batchB, B), axis=0)
-
-        if self.AtoB:
-            self.A = batchA.astype(np.float32) / (255.0 / 2.0) - 1.0
-            self.B = batchB.astype(np.float32) / (255.0 / 2.0) - 1.0
-        else:
-            self.B = batchA.astype(np.float32) / (255.0 / 2.0) - 1.0
-            self.A = batchB.astype(np.float32) / (255.0 / 2.0) - 1.0
+            #random sample label
+            label_rand_idx = random.sample(range(len(self.unique_label)), 1)[0]
+            data_dix = random.sample(self.unique_label_idx[label_rand_idx], 2)
+            assert  self.label[data_dix[0]] == self.label[data_dix[1]]
+            self.label_batch.append(self.label[data_dix[0]])
+            self.label_batch.append(self.label[data_dix[1]])
+            A = cv2.imread(self.data_gen[data_dix[0]])
+            B = cv2.imread(self.data_gen[data_dix[1]])
+            A = cv2.resize(A,(self.config.loadSize , self.config.loadSize))
+            B = cv2.resize(B, (self.config.loadSize, self.config.loadSize))
+            A = A.astype('float32')
+            B = B.astype('float32')
+            A = A - self.img_mean
+            B = B - self.img_mean
+            A = np.transpose(A[..., np.newaxis], (3, 2, 0, 1))
+            B = np.transpose(B[..., np.newaxis], (3, 2, 0, 1))
+            batchA = np.concatenate((batchA, A), axis=0)
+            batchB = np.concatenate((batchB, B), axis=0)
+            self.A = A
+            self.B = B
 
         if pad > 0:
             if self.is_train:

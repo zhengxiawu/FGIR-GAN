@@ -36,6 +36,10 @@ config.dataset.root = './data'
 config.dataset.imageset = 'train'
 config.dataset.image_root = './datasets'
 config.dataset.testset = 'val'
+config.dataset.mean_r = 104
+config.dataset.mean_g = 117
+config.dataset.mean_b = 123
+
 
 
 config.TRAIN = edict()
