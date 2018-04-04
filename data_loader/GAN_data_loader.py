@@ -137,21 +137,24 @@ class DataIter(mx.io.DataIter):
             data_dix = random.sample(self.unique_label_idx[label_rand_idx], 2)
             assert  self.label[data_dix[0]] == self.label[data_dix[1]]
             self.label_batch.append(self.label[data_dix[0]])
-            self.label_batch.append(self.label[data_dix[1]])
+            #self.label_batch.append(self.label[data_dix[1]])
             A = cv2.imread(self.data_gen[data_dix[0]])
             B = cv2.imread(self.data_gen[data_dix[1]])
             A = cv2.resize(A,(self.config.loadSize , self.config.loadSize))
             B = cv2.resize(B, (self.config.loadSize, self.config.loadSize))
             A = A.astype('float32')
             B = B.astype('float32')
-            A = A - self.img_mean
-            B = B - self.img_mean
+            # A = A - self.img_mean
+            # B = B - self.img_mean
+
             A = np.transpose(A[..., np.newaxis], (3, 2, 0, 1))
             B = np.transpose(B[..., np.newaxis], (3, 2, 0, 1))
             batchA = np.concatenate((batchA, A), axis=0)
             batchB = np.concatenate((batchB, B), axis=0)
-            self.A = A
-            self.B = B
+            self.A = batchA.astype(np.float32) / (255.0 / 2.0) - 1.0
+            self.B = batchB.astype(np.float32) / (255.0 / 2.0) - 1.0
+            # self.A = A
+            # self.B = B
 
         if pad > 0:
             if self.is_train:

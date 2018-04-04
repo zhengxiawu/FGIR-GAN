@@ -44,6 +44,7 @@ from core.create_logger import create_logger
 from data_loader.GAN_data_loader import DataIter
 from core.visualize import visualize
 from core import metric
+from mxnet import metric as mx_metric
 from core.lr_scheduler import PIX2PIXScheduler
 
 
@@ -286,11 +287,25 @@ def main():
             })
     mods.append(discriminator)
 
+    #load the trained model
+    import symbols.loss_layer.lsoftmax
+    save_model_prefix = '/home/zhengxiawu/project/FGIR-GAN/trained_model/Resnet_lsoftmax'
+    tag = 0
+    trained_sym, trained_arg_params, trained_aux_params = \
+        mx.model.load_checkpoint(save_model_prefix, tag)
+    train_model = mx.mod.Module(symbol=trained_sym,data_names=('data',),label_names=('label',),
+                                context=ctx)
+    train_model.bind(data_shapes=[('data',(batch_size,3,256,256))],
+                       label_shapes=[('label', (batch_size,))],
+                       inputs_need_grad=True)
+    train_model.init_params(arg_params=trained_arg_params,aux_params=trained_aux_params)
+
     # metric
     mG = metric.CrossEntropyMetric()
     mD = metric.CrossEntropyMetric()
     mACC = metric.AccMetric()
     mL1 = metric.L1LossMetric(config)
+    mTrained = mx_metric.create(['accuracy'])
 
     t_accumulate = 0
 
@@ -301,6 +316,7 @@ def main():
         mG.reset()
         mD.reset()
         mL1.reset()
+        mTrained.reset()
         for t, batch in enumerate(train_data):
 
             t_start = time.time()
@@ -308,6 +324,15 @@ def main():
             # generator input real A, output fake B
             generator.forward(batch, is_train=True)
             outG = generator.get_outputs()
+
+            #put into trained model
+            train_model.forward(mx.io.DataBatch([outG[1]*(255.0/2.0)],batch.label),is_train=True)
+            train_model.backward()
+            diffT = train_model.get_input_grads()
+            train_model.update_metric(mTrained,batch.label)
+            generator.backward([mx.nd.array(np.ones((batch_size,)), ctx=ctx), diffT[0] * config.Trained_model_loss * (255.0/2.0)])
+            generator.update()
+
 
             # update discriminator on fake
             # discriminator input real A and fake B
@@ -356,7 +381,8 @@ def main():
             if t % frequent == 0:
                 if config.TRAIN.batch_end_plot_figure:
                     visualize(batch.data[0].asnumpy(), batch.data[1].asnumpy(), outG[1].asnumpy(), train_fig_prefix + '-train-%04d-%06d.png' % (epoch + 1, t))
-                print 'Epoch[{}] Batch[{}] Time[{:.4f}] dACC: {:.4f} gCE: {:.4f} dCE: {:.4f} gL1: {:.4f}'.format(epoch, t, t_accumulate, mACC.get()[1], mG.get()[1], mD.get()[1], mL1.get()[1])
+                #a = mTrained.get()
+                print 'Epoch[{}] Batch[{}] Time[{:.4f}] dACC: {:.4f} gCE: {:.4f} dCE: {:.4f} gL1: {:.4f} tAcc: {:.4f}'.format(epoch, t, t_accumulate, mACC.get()[1], mG.get()[1], mD.get()[1], mL1.get()[1],mTrained.get()[1][0])
                 logger.info('Epoch[{}] Batch[{}] Speed[{:.4f} batch/s] dACC: {:.4f} gCE: {:.4f} dCE: {:.4f} gL1: {:.4f}\n'.format(epoch, t, frequent * batch_size / t_accumulate, mACC.get()[1], mG.get()[1], mD.get()[1], mL1.get()[1]))
                 t_accumulate = 0
 
